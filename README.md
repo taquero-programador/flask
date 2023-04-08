@@ -1,4 +1,4 @@
-# flask
+# Flask
 
 ## ¡Hola, mundo!
 ```sh
@@ -84,11 +84,108 @@ Luego, puede escribir el nombre y el valor de la variable de entorno en un archi
 llamado `.flaskenv` ubicado en el directorio de nivel superior del proyecto.
 
 ## Templates
-¿Qué son las plantillas?
-Quiero que la página de inico de mi aplicació tenga un encabezado que de la bienvenida
+#### ¿Qué son las plantillas?
+Quiero que la página de inico de mi aplicación tenga un encabezado que de la bienvenida
 al usuario. Por el momento voy a ingorar el hecho de que la aplicación aún no tiene
 el concepto de usuarios (más adelante). En su lugar, usaré un usuario simulado, que
 implementaré como un diccionario de Python, de la siguiente manera:
 ```py
-print()
+user = {'username': 'Miguel'}
 ```
+La creación de objetos simulados es una técnica útil que le permite concentrarse en
+una parte de la aplicación sin tener que preocuparse por otras partes del sistema que
+aún no existe.
+
+La función de vista en la aplicación devuelve una cadena simple. Lo que quiero hacer
+ahora es expandir esa cadena devuelta en una página HTML completa, tal vez algo
+como esto -> `app/routes.py`.
+
+Las plantillas ayudan a logar esta separación entre la presentación y la lógica
+comercial. En Flask, las plantillas se escriben como archivos separados, amancenados
+en una carpeta de plantillas que se encuentra dentro del paquete de la aplicación.
+Entonces, cree el directorio donde se almacenarán las plantillas:
+
+    mkdir app/templates
+
+`app/templates/index.html`
+
+Esta es una página HTML es su mayoría estándar, muy simple. Lo único interesante de
+esta página es que hay un par de marcadores de posición para el contenido dinámico,
+encerrados en secciones `{{ .. }}`. Estos marcadores de posición representan las
+partes de la página que son variable y solo se conocerán en tiempo de ejecución.
+
+Ahora que la presentación de la página se descargó en la plantila HTML, la función
+de vista de puede simplificar -> `app/routes.py`.
+
+La operación que convierte una plantilla es una página HTML completa se denomina
+representación. Para renderizar la plantilla, tuve que importar una función que viene
+con Flask llamada `render_template()`. Esta función toma un nombre de archivo de plantilla
+y una lista variable de argumentos de plantilla y devuelve la misma plnatilla, pero
+con todos los marcadores de posición reemplazado por valores reales.
+
+La función `render_template()` invoca el motor de plantillas Jinga2 que viene incluido
+con Flask. Jinga2 sustituyo `{{ .. }}` con los valores correspondientes, dado por los
+argumentos proporcionados al llamar a `render_template()`.
+
+#### Declaraciones condicionales
+Ha visto cómo Jinga2 reemplza los marcadores de posición con valores reales durante
+el renderizado, pero esta es solo una de las muchas operaciones poderosas que admite
+Jinga2 en los archivos de plantilla. Por ejemplo, las plantillas también adminte
+sentencias de control, dadas dentro de bloques `{% ... %}`. Agregar una declaración
+condicional -> `app/templates/index.html`.
+
+Ahora la plantilla es un poco más inteligente. Si la función de vista se olvida de pasar
+un valor para la variable `title` de marcador de posición, en lugar de mostrar un título
+vacío, la plantilla proporcionará uno predeterinado. Puede probar cómo funciona esta
+condicional eliminando el argumento `title` en la llamada de la función 
+`render_template()`. Aplica para el título en la pestaña del navegador.
+
+#### Bucles
+El usuario conetado probablemente querrá ver las publicaciones recientes de los
+usuarios conectados en la página de inicio.
+
+Crear algunos usarios falsos en `/app/routes.py`.
+
+Para representar las publicaciones de los usuarios, estoy usando una lista, donde cada
+elemento es un diccionario que tiene los campos `autho` y `body`.
+
+Por el lado de la plantilla tengo que resolver un nuevo problema. La lista de
+publicaciones puede tener cualaquier cantidad de elementos, depende de la función de
+vista decidir cuántas publicaciones se presentarán en la página. La plantilla no puede
+hacer supociones sobre cuántas publicaciones hay, por lo que debe estar preparada
+para representar tantas publicaciones como la vista envíe de forma genérica.
+
+Para este tipo de problemas, Jinga2 ofrece una estructura de control `for`
+-> `app/templates/index.html`.
+
+#### Herencia de plantillas
+La mayoría de las aplicaciones web en estos días tienen una barra de navegación en la
+parte superior de la página con algunos enlaces de uso frecuente, como un enlace para   editar un su perfil, iniciar sesióm, cerrar, sesión, etc. Puede agregar fácilmente
+una barra de navegación a la plantilla `index.html` con algo más de HTML, pero a medida
+que la aplicación cerza, necesitará esta misma barra de navegación en otras páginas.
+
+Jinga2 tiene una función de herencia de plantillas. En escencia, lo que puede hacer es
+mover las partes del diseño de página que son comunes a todas las plantillas a una
+plnatilla base, de la cual se derivan todas las demás plantillas.
+
+Definir una plantilla base llamada `base.html` que incluya una barra de navegación simple
+y también la lógica de título implemantado anteriormente. plantilla base en
+`app/templates.base.html`.
+
+`block` declaración de control para definir el lugar donde las plantillas derivadas
+pueden insertarse. Los bloques reciben un nombre único, al que las plantillas derivadas
+pueden hacer referencia cuando proporcionan su contenido.
+
+Con la plantilla base en su lugar, ahora puede simplificar `index.html` haciéndolo
+heredar de `base.html`. Modificar `app/templates/index.html`.
+
+Dado que la plantilla `base.html` ahora se encargará de la esctructura general de la
+página, quite todos los elementos de `index.html` y dejé solo la parte del contenido.
+La declaración `extends` establece el vínculo de herencia dentre las dos plantillas,
+de modo que Jinga2 sabe que cuando se le pide que renderice `index.html` necesita
+incrustarlo dentro de `base.html`. Las dos plantillas tienen la declaración
+`block` con nombre `content`, así es como Jinga2 sabe combinar las dos plantillas en
+una sola. Ahora, si necesita crear páginas adicionaes para la aplicación, puede
+crearlas como plantillas derivadas de la misma plantilla `base.html`, y así es como
+puede hacer que todas las páginas de la aplicación compartan la misma apariencia sin
+duplicación.
