@@ -450,3 +450,453 @@ y propenso a errores. El `url_for()` también puede generar estas URL complejas.
 Así que de ahora en adelante, voy a usar `url_for()` cada vez que necesite generar
 una URL de aplicación -> `app/templates/base.html` y actualizar la función
 `login()` -> `app/routes.py`.
+
+## Databases
+Flask no admite bases de datos de forma nativa. Pero tiene la libartad de elegir la
+base de datos que mejor se adapte a su aplicación en lugar de verse obligado a
+adaptarse a una.
+
+Hay excelentes opciones para bases de datos en Python, muchas de ellas con
+extensiones de Flask que hacen una mejor integración con la aplicación. Las bases
+de datos se pueden separar en dos grandes grupos, las que siguen el modelo
+relaciona y las que no. El último modelo a menuso se denomina NoSQL, lo que indica
+que no implementa el popular lenguaje de consultas SQL. Si bien existen
+excelentes productos de bases de daots en ambos grupos, las bases de dato
+relacionales son una mejor combinación para las aplicaciones que tiene datos
+estructurados, como listas de usuarios, pubicaciones de blog, etc., mientras que
+las bases de datos NoSQL tienden a ser mejores para los datos que tienen una
+estructura menos definida. Esta aplicación, como la mayoría de las demás, se puede
+implementar utilizando cualquier tipo de base de datos.
+
+Flask-SQLAlchemy es una extensión que proporciona un contenedor compatible con Flask
+para el popular paquete SQLAlchemy, que es un mapaeador relacional de objetos u ORM.
+Los ORM permiten que las aplicaciones administren una base de datos utilizando
+entidades de alto nivel como clases, objetos y métodos en lugar de tablas y SQL.
+El trabajo del ORM es traducir las operaciones de alto nivel en comandos de base de
+datos.
+
+Lo bueno de SQLAlchemy es que es un ORM no para una, sino para muchas base de
+datos relaciones. SQLAlchemy admite una larga lista de motores de base de datos,
+inlcuidos los populares MySQL, PostgreSQL y SQLite. Esto es extremadamente
+poderoso, porque puede hacer su desarrollo utilizando una base da datos SQLite
+simple que no requiere un servidor. y luego, cuando llegue el momento de
+implementar la aplicación de un servidor de producción, puede elegir un servidor
+MySQL o PostgreSQL más robusto, sin tener que cambiar su aplicación.
+
+Instalar SQLAlchemy:
+
+    pip install flask-sqlalchemy
+
+#### Migraciones de bases de datos
+Esto es difícil porque las bases de datos relacionales se centran en datos
+estructurados, por lo que cuando la estructura cambia, los datos que ya están en
+la base de datos deben migrarse para la estructura modificada.
+
+Flask-Migrate es un contenedor de Flask para Alembic, un marco de migración de
+base de datos para SQLAlchemy. TRabajar con Migraciones de base de datos agrega
+un poco de trabajo para iniciar una base de datos, pero es un pequeño precio a
+pagar por una form sólida de realiza cambios en su base de datos en el futuro.
+
+Instalar Flask-Migrate:
+
+    pip install flask-migrate
+
+#### Configuración de Flask-SQLAlchemy
+Las bases de datos SQLite son la opción más conveniente para el desarrollar
+aplicaiones pequeñas, a veces incluso no tan pequeñas, ya que cada base de datos
+se almacena en un solo archivo en el disco y no es necesario ejecutar un servidor
+de base de datos.
+
+Agregar dos nuevos elementos de configuración al archivo -> `config.py`.
+
+La extensión Flask-SQLAlchemy toma la ubicación de la base de datos de la
+aplicación de la variable `SQLALCHEMY_DATABASE_URI`. En este caso, estoy tomando
+la URL de la base de datos de la variable de entorno `DATABSE_URL`, y si no está
+definido, estoy configurando una base de datos llamada `app.db` ubicada en el
+directorio principal de la aplicación, que se almacena en la variable `basedir`.
+
+La opción de configuración `SQLALCHEMY_TRACK_MODIFICATIONS` está establecida en
+`False` para deshabilitar una función de Flask-SQLAlchemy que no necesito, que es
+enviar una señal a la aplicación cada vez que se va a relizar un cambio en la
+base de datos.
+
+La base de datos va estar representada en la aplicación por la instancia de la
+base de datos. El motor de migración de base de datos también tendrá una
+instancia. Estos son objetos que deben crearse después de la aplicación,
+en el archivo -> `app/__init__.py`.
+
+He realizado tres cambios en el script de `app/__init__.py`. Primero, he añadido
+un objeto `db` que representa la base de datos. Luego he agregado otro objeto que
+representa el motor de migración. Con surte, verá un patrón sobre como trabajar
+con las extensiones de Flask. La mayoría de las extensiones se inicializan como
+estas dos. Finalmente, Estoy importando un nuevo módulo llamado `models` en el
+fondo. Este módulo definirá la estructura de la base de datos.
+
+#### Modelos de base de datos
+Los datos que se almacenarán en la base de datos estarán representado por una
+colección de clases, generalmente denominadas *modelos de base de datos*. La capa
+ORM dentro de SQLAlchemy hará las traducciones necesarias para asignar objetos
+creados a partir de estas clases en filas en las tablas de base de datos
+adecuadas.
+
+Comencemos por crear un modelo que represente a los usuarios:
+
+![users](pics/tusers.png)
+
+El campo `id` suele estar en todos los modelos y se utiliza como clave principal.
+A cada usuario de la base de dato se le asignará un valor de identifiación único,
+almacenado en este campo. Las claves primarias, en la mayoría de los casos, son
+asignadas automáticamente por la base de datos, por lo que solo necesito
+proporcionar el campo `id` marcado como clave primaria.
+
+Los campos `username`, `email` y `password_hash` se definen como cadenas (`VARCHAR`), y
+sus longitudes máximas se especifican para que la base de datos pueda optimizar
+el uso del espacio. Mientras que los campos `username` y `email` se explican por sí
+mismos, el campo `password_hash` merece algo de atención. Quiero asegurame de
+que la aplicación que estoy creando adopte las mejores prácticas de seguridad y,
+por ese motivo, no almacenaré las contraseñas de los usuarios en la base de datos.
+El problema con el almacenamiento de contraseñas es que si la base de datos
+alguna vez se ve comprometida, los atacantes tendrán acceso a las contraseña y
+eso podría ser devastador para los usuarios. En lugar de escribir las contraseñas
+directamente, voy a escribir un hash de contraseña, lo que mejora enormemente la
+seguirdad.
+
+Entonces, ahora que sé lo que quiero para mi tabla de usuarios, puedo traducirlo en
+código en el nuevo módulo -> `app/models.py`.
+
+La clase `User` hereda de `db.Model`, una clase base para todos los modelos de
+Flask.SQLAlchemy. Esta clase define varios campos como variable de clase. Los
+campos se crean como instancias de la clase `db.Column`, que toma como argumento
+el tipo de campo, más otros campos opcionales que, por ejemplo, permiten indeicar
+qué campos son únicos e indexados, lo cual es importante para que las búsquedas
+en la base de datos sea eficiente.
+
+El método `__repr__` le dice a Python cómo imprimir objetos de la clase, lo que sera
+útil para la depuración, ejemplo:
+```py
+from app.models import User
+u = User(username='susan', email='susan@example.com')
+u
+```
+
+#### Creación del repositorio de migración
+La clase de modelo creado en la sección anterior define la estructura de la base
+de datos inicial (*schema*) para esta aplicación. Pero a medida que la aplicación
+continúa creciendo, es probable que deba realizar cambios en esa estructura,
+como agregar cosas nuevas y, a veces, modificar o eiminar elementos. Alembic
+realizará estos cambios de esquema de una manera que no requiera que la base de
+datos se vuelva a crear desde cero cada vez que se deba realizar un cambio.
+
+Para logar esta tarea aparentemente fácil, Alembic mantiene un repositorio de
+migración, que es un directorio en el que almacena sus scripts de migración. Cada
+vez que se reliza un cambio en el esquema de la base de datos, se agrega un script
+de migración al repositorio con los detalles de los cambios. Para aplicar las
+migraciones a una base de datos, estos scripts de migración se ejecutan en la
+secuencia en que se crearon.
+
+Flask-Migrate expone sus comandos a través del dominio `flask`. `flask db` Flask-Migrate
+agrega un subcomando para administrar todo lo relacioando con las migraciones de
+base de datos. Crear el repositorio de migración para microblog:
+
+    flask db init
+
+Después de ejecutar este comando, encontrará un nuevo directorio de migraciones,
+con algunos archivos y un subdirectorio de versiones dentro. Todos estos archivos
+deben tratarse como parte de su proyecto a partir de ahora y, en particular, deben
+agregarse al control de código de fuente junto con el código de la aplicación.
+
+#### La primera migración de base de datos
+Con el repositorio de migración en su lugar, es hora de crear la primera migración
+de base de datos, que incluirá la tabla de usuarios que se asigna al modelo
+`User` de la base de datos. Hay dos formas de crear una migración de base de datos:
+manual o automáticamente. Para generar una migración automáticamente, Alembic
+compara el esquema de la base de datos definido por los modelos de la base de datos
+real que se usa actualmente en la base de datos. Luego, completa el script de
+migración con los cambios necesarios para que el esquema de la base de datos
+coincida con los modelos de la aplicación. En este caso, dado que no existe una
+base de datos anterior, la migración automática agregará todo el modelo `User`
+al script de migración. El subcomando `flask db migrate` genera estas migraciones
+automáticas:
+
+    flask db migrate -m "users table"
+
+La salida del comando le da una idea de lo que Alembic incluyó en la migración. Las
+dos primeras líneas son informativas y, por lo general, se pueden ignorar. Luego
+dice que ecnotró una tabla de usuarios y dos índices. Luego te dice dónde escribió
+el script de migración. El código `e517276bb1c2` es un código único generado
+automáticamente para la migración. El comentario dado con la opción `-m` es opcional,
+agrega un breve texto descriptivo a la migración.
+
+El script de migración generado ahora es parte de su proyecto y debe incorporase
+al control de código. La función `upgrade()` aplica la migración y la función
+`downgrade()`. Esto le permite a Alembic migrar la base de datos a cualquier punto
+del historial, incluso a versiones anteriores, utilizando la ruta de degreadación.
+
+El coamndo `flask db migrate` no reliza ningún cambio en la base de datos, solo genera
+el script de migración. Para aplicar los cambios a la base de datos, debe usar el
+comando `flask db upgrade`:
+
+    flask db upgrade
+
+Debido a que esta aplicación una SQLite, el comando `upgrade` detectará que una base
+de datos no existe y la creará (`app.db`). Cuando trabaje con sevidores de base de
+datos, como MySQL y PostgreSQL, debe crear la base de datos en el servidor
+antes de ejecutar `upgrade`.
+
+Tenga en cuenta que Flask-SQLAlchemy usa una convención de nomeclatura "snake case"
+para las tablas de la base de datos de forma predeterminada. Para el modelo
+anterior `User`, la tabla correspondiente en la base de datos se llamará `user`.
+Para la clase de modelo `AdreesAndPhone`, la tabla se llamaría `address_and_phone`.
+Si prefiere elegir sus propios nombre de tablas, puede agregar un atributo llamado
+`__tablename__` a la clase de modelo, establezca el nombre desea como una cadena.
+
+#### Flujo de trabajo de actualización y degradación de la base de datos
+La aplicación está en su infancia en este momento. Imagine que tiene su aplicación
+en su máquina de desarrollo y también tiene una copia implementada en su servidor
+de producción que está en línea y en uso.
+
+Digamos que para la próxima versión de su aplicación debe introducir un cambio
+en sus modelos, por ejemplo, se debe agregar una nueva tabla. Sin migraciones,
+necesitaría descrubir cómo cambiar el esquema de su base de datos, tanto en su
+máquina de desarrollo como en su servidor, y esto podría ser mucho trabajo.
+
+Pero con el soporte de migración de base de datos, después de modificar los
+modelos en su aplicación, genera un nuevo script de migración (`flask db migrate`),
+probablemente lo revise para asegurarse de que la generación automática hizo lo
+correcto y luego aplique los cambios a su base de datos de desarrollo
+(`flask db upgrade`). Agregará el script de migración al control de código de
+fuente y lo confirmará.
+
+Cuando esté listo para lanzar la nueva versión de la aplicación a su servidor de
+producción, todo lo que necesita hacer es obtener la versión actualizada de au
+aplicación, que incluirá el nuevo script de migración y ejecutar `flask db upgrade`.
+Alembic, detectará que la base de datos de producción no está actualizada a la
+última revisión del esquema y ejecutará todos los nuevos scripts de la migración
+que se crearon después de la versión anterior.
+
+También tiene un comando `flask db downgrade`, que deshace la última migración. Si
+bien es poco probable que necesite esta opción en su sistema de producción, puede
+resultare muy úitl durante el desarrollo. Es posible que haya generado un script
+de migración y lo haya aplicado, solo para descubrir que los cambios que
+realizó no son exactamente lo que necesita. En este caso, puede degradar la base
+de datos, eliminar el script de migración y luego generar uno nuevo para
+reemplazarlo.
+
+#### Las bases de datos
+Las bases de datos relacionales son buenas para almacenar relaciones entre
+elementos de datos. Considere el caso de un usuario que escribe una publicación
+de blog. El usuario tendrá un registro de la tabla `users`, y la publicación
+tendrá un registro en la tabla `posts`. La forma más eficiente de registrar quién
+escribió una publicación determinada es vincular los dos registros relacionados.
+
+Una vez que establece un vinculo entre un usuario y una publicación, la base de
+datos puede responder consultas sobre este vínculo. El más trivial es cuando
+tienes una publicación de un blog y necesitar saber qué usuario lo escribió.
+Una consulta más compleja es la inversa de esta. Si tiene un usuario, es posible
+que desee concer todas las publicaciones que este usuario escribió. Flask-SQLAlchemy
+ayudará con ambos tipos de consultas.
+
+Expandamos la base de datos para almacenar publicaciones de blog y ver las
+relaciones en acción. Esquema para una nueva tabla `posts`:
+
+![posts](pics/tposts.png)
+
+La tabla `posts` tendrá el `id` requerido, un campo `body` y un `timestamp`. Pero además
+de estos campos separados, tendrá un campo `user_id`, que vincula la publicación
+con su autor. Todos los usuarios tienen una clave `id` princila que es única. La
+forma de vincular una publicación de blog con el usuario que lo creó es agregar
+una referencia al `id`, eso es exactamente lo que el campo `user_id` es. Este campo
+`user_id` se llava clave foránea. El diagrama de las bases de datos anterior
+muestra las claves foráneas como un enlace entre el campo y el campo `id` de la
+tabla que se refiere. Este tipo de ralación se llama uno a muchos, porque "un"
+usuario escribe muchas "publicaciones". Modificar -> `app/models.py`.
+
+La nueva clase `Post` representará publicaciones de blog escritas por usuarios. El
+campo `timestamp` se indexará, lo cual es útl si desea recuperar publicaciones en
+order cronológico. También he añadido un argumento `default`, y pasó la función
+`datetime.utcnow`. Cuando pasa una función como predeterminada, SQLAlchemy
+establecerá el campo en el valor al llamar a esa función. En general querrá
+trabajar con fechas y horas UTC en una aplicación de servidor. Esto garantiza que
+está utilizando marcas de tiempo uniforme independientemente de dónde se encuentren
+los usuarios. Estas marcas de timpo se convertirán a la hora local del usuario
+cuando se muestren.
+
+El campo `user_id` se inicializó como una clave externa para `user.id`, lo que
+significa que hace referencia a un valor `id` de la tabla de usuarios. En esta
+referencia el campo `user` es el nombre de la tabla de la base de datos para el
+modelo. Es una desafortunada inconsistencia que en algunos casos, como en una
+llamada a `db.relationship()`, el modelo es referenciado por la clase del model, que
+normalmente comienza con un carácter en mayúscula, mienstras que en otros casos
+como esta declaración `db.ForeignKey()`, un modelo viene dado por su nombre de tabla
+de base de datos, para el cual SQLAlchemy usa automáticamente caracteres en minúsculas
+y, para nombres de modelos de varias palabras, mayúscula y minúsculas.
+
+La clase `User` tiene un nuevo campo `posts`, que se inicializa con `db.relationship`.
+Este no es un campo de base de datos real, sino una bista de alto nivel de la
+relación entre usuarios y las publicaciones, y por esa razón no está en el
+diagrama de la base de datos. Para una relación de uno a muchos `db.relationship`.
+El campo normalmente se define en el lado "uno" y se usa como una forma
+conveniente de obtener acceso a los "muchos". Entonces, por ejemplo, si tengo
+tengo un usuario almacenado en `u`, la expresión `u.posts` ejecutará una consulta
+de base de datos que devuelve todas la publicaciones escritar por ese usuario. El
+primer argumento `db.relationship` es la clase modelo que representa el lado "varios"
+de la relación. Este argumento se puede proporcionar como una cadena con el nombre
+de la clase si el modelo se define más adelante en el módulo. El argumento
+`backref` define el nombre de un campo que se agregará a los objetos de la clase
+"varios" que apunta al objeto "uno". Esto agregará una expresión `post.author` que
+devolverá al usuario una publicación dada. El agumento `lazy` define cómo se emitirá
+la consulta de la base de datos para la relación.
+
+Dado que tengo actualizaciones de los modelos de la aplicación, es necesario
+generar una nueva migración de la base de datos:
+
+    flask db migrate -m "posts table"
+
+Y aplicar la migración a la base de datos:
+
+    flask db upgrade
+
+#### Jugando con la base de datos
+Dado que la aplicación aún no tiene ninguna lógica de base de datos, juguemos con
+la base de datos en el intérprete de Python para familiarizarnos con ella.
+```py
+from app import app, db
+from app.models import User, Post
+```
+Para que Flask y sus extensiones tengan acceso a la aplicación Flask sin tener que
+que pasar `app` como argumento en cada función, un contexto de aplicación se debe
+crear y enviar.
+```py
+app.app_context().push()
+```
+A continuación, cree un nuevo usuario:
+```py
+u = User(username='john', email='john@example.com')
+db.session.add(u)
+db.session.commit()
+```
+Los cambios en una base de datos se realizan en el contexto de una sesión de base
+de datos, a la que se puede acceder como `db.session`. Se pueden acumular múltiples
+cambios en una sesión y una vez registrados todos los cambios se puede emitir un
+solo `db.session.commit()`, que escribe todos los cambios. Si en cualquier momento
+mientras se trabaja en una sesión hay un error, una llamada a `db.session.rollback()`
+cancelará la sesión y eliminará los cambios almacenado en ella. Lo importante a
+recordar es que los cambios solo se escriben en la base de datos cuando se emite
+una confirmación con `db.session.commit()`. Las sesiones garantizan que la base de
+datos nunca quedará en un estado inconsistente.
+
+El contexto de la aplicación que se envió anteriormente permite que Flask-SQLAlchemy
+acceda a la instancia de la aplicación Flask `app` sin tener que recibirlo como un
+argumento. La extensión busca en el diccionario `app.config` la entrada
+`SQLALCHEMY_DATABASE_URI`, que contiene la URL de la base de datos.
+
+Agregar otro usuario:
+```py
+u = User(username='susan', email='susan@example.com')
+db.session.add(u)
+db.session.commit()
+```
+La base de datos puede responder una consulta que devuelve todos los usuarios:
+```py
+users = User.query.all()
+users
+...
+for u in users:
+    print(u.id, u.username)
+```
+Todos los modelos tienen un atributo `query` que es el punto de entrada para ejecutar
+consultas de base de datos. la consulta más básica es aquella que devuelve todos los
+elementos de esa clase, que se denomina `all()`. Tenga en cuenta que los campos `id`
+se establecieron automáticamente en `1` y `2` cuando se agregaron los usuarios.
+
+Aquí hay otra forma de hacer consultas. Si conoces el `id` de un usuario, puede
+recuperarse ese usuario usando lo siguiente:
+```py
+u = User.query.get(1)
+# or
+print(User.query.get(1))
+```
+Ahora agregar una publicación de blog:
+```py
+u = User.query.get(1)
+p = Post(body='test post', author=u)
+db.session.add(p)
+db.session.commit()
+```
+No necesita establecer un valor para `timestamp` porque ese campo tiene un valor
+predeterminado, que puede ver en la definición del modelo. ¿Y qué paso con el campo
+`user_id`? Recuerda el `db.relationship` que creé en la clase `User` agregando un
+atributo `posts` a los usuarios, y también un atributo `author` a las publicaciones.
+Asigno un autor a una publicación usando el campo virtual `author` en lugar de tener
+que lidiar con el ID de usuario. SQLAlchemy es excelente en ese sentido, ya que
+proporciona una abstracción de alto nivel sobre las relaciones y las claves externas.
+
+Algunas consultas a la base de datos:
+```py
+u = user.query.get(1)
+u
+...
+posts = u.posts.all()
+posts
+...
+
+# usuario sin posts
+u = User.query.get(2)
+u
+...
+u.posts.all()
+...
+
+# print post author and body for all posts
+for p in Post.query.all():
+    print(p.id, p.author.username, p.body)
+
+# get all users in reverse order
+User,qyer.order_by(User.username.desc()).all()
+```
+Borrar los registros de la tabla `User` y `Post`:
+```py
+for u in User.query.all():
+    db.sessiopn.delete(u)
+
+for p in Post.query.all():
+    db.session.delete(p)
+
+# confirmar
+db.session.commit()
+```
+
+#### Contexto de shell
+```py
+from app import app, db
+from app.models import User, Post
+app.app_context().push()
+```
+Mientras trabaja con su aplicación, necesitara probar cosas en una shell de Python
+con mucha frecuencia, por lo que tener que repetir las declaraciones anteriores
+cada vez se volcerá tedioso. 
+
+El commando `flask shell` es otra herramienta muy útil en `flask`. El comando `shel` es
+el segundo comando "básico" implementado por Flask, después de `run`. El
+propósito de este comando es iniciar un interprete de Python en el contexto de la
+aplicación. Ejemplo:
+```py
+python
+>>> app
+# error
+
+flask shell
+>>> app
+print(User.query.all()) # works fine!
+```
+Con una sesión regular, el símbolo `ap` no se conoce a menos que se import explícitamente,
+pero cuando se usa `flask shell`, el comando import previamente la instancia de la
+aplicación, lo bueno de `flask shell` no es solo que preimporta `app`, sino también
+puede configurar un "contexto de shell".
+
+La siguiente función en `microblog.py` crea un contexto de shell que agrega la
+instancia de la base de datos y los modelos a la sesión de shell.
+
+Si se obtiene error al acceder a `db`, `User` y `Post`, es probable que se deba a que
+no se a registrado la variable de entorno `FLASK_APP=microblog.py`. Se resuelve añadiendo
+la variable en una archivo `.flaskenv` o con `export FLASK_APP=microblog.py`.
