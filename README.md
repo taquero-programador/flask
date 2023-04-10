@@ -387,8 +387,8 @@ Aquí estoy usando un constructor `with` para asignar el resultado de llamar a
 `get_flashed_messages()` a una variable `messages`, todo en el contexto de la
 plantilla. La función `get_flashed_messages()` proviene de Flask y devuelve una lista
 de todos los mensajes que se han registrado previamente con `flash()`. La condición
-comprueba si `messages` tiene algún contendo. y en ese caso, un elemento <ul>
-representara cada mensaje como un elemento de la lista <li>.
+comprueba si `messages` tiene algún contendo. y en ese caso, un elemento `<lu>`
+representara cada mensaje como un elemento de la lista `<li>`.
 
 Una propiedad interesante de estos mensajes flasheados es que una vez que se
 solicitan una vez a través de la función `get_flashed_messages()` se eliminan de
@@ -900,3 +900,277 @@ instancia de la base de datos y los modelos a la sesión de shell.
 Si se obtiene error al acceder a `db`, `User` y `Post`, es probable que se deba a que
 no se a registrado la variable de entorno `FLASK_APP=microblog.py`. Se resuelve añadiendo
 la variable en una archivo `.flaskenv` o con `export FLASK_APP=microblog.py`.
+
+## Login users
+#### Hashing de contraseña
+`password_hash` el propósito de este campo es mantener un has de la contraseña del
+usuario, que se utilizará para verificar la contraseña ingresada por el usuario
+durante el proceso de inicio de sesión.
+
+Uno de los paquetes que implementa el hashing de contraseñas es Werkzeug. Dado que
+es una dependencia, Werkzeug ya está instalado en su entorno virtual. Muestra de
+cómo codificar una contraseña:
+```py
+from werkzeug.security import generate_password_hash
+hash = generate_password_hash('foobar')
+hash
+```
+En este ejemplo, la contraseña `foobar` se transforma en una larga cadena codificada a
+través de una serie de operaciones criptográfica que no tienen una operación
+inversa conocida, lo que significa que una persona que obtiene la contraseña
+codificada no podrá usarla para obtener la contraseña original. Como medida
+adiciona, si hashea la misma contraseña varias veces, obtendrá resultados diferentes,
+por lo que es imposible identificar si dos usuarios tienen la misma contraseña
+mirando su hash.
+
+El proceso de verificación se realiza con una segunda función de Werkzeug:
+```py
+from werkzeug.security import check_password_hash
+check_password_hash(hash, 'foobar')
+True
+check_password_hash(hash, 'barfoo')
+False
+```
+La función de verificación toma un hash de contraseña que se generó previamente
+y una contraseña ingresada por el usuario al momento de iniciar sesión. La función
+devuelve `True` si la contraña proporcionada por el usuario coincide con el hash, o
+`Flase` en caso contrario.
+
+Toda la lógica de hashing de contraseña se puede implementar como dos nuevos
+métodos en el modelo de usuario -> `app/models.py`.
+
+Con estos dos métodos implementados, un objeto de usuario ahora puede realizar
+una verificación de contraseña segura, sin la necesidad de almacenar contraseñas
+originales:
+```py
+u = User(username='bender', email='bender@example.com')
+u.set_password('killallhumans')
+u.check_password('nokllfry')
+False
+u.check_password('killallhumans')
+True
+```
+
+#### Introducción a Flask-Login
+Esta extensión administra el estado de inicio de sesión del usuario, de como que,
+por ejemplo, los usuarios pueden iniciar sesión en la aplicación y luego navegar
+a diferentes páginas mientras la aplicación "recuerda" que el usuario ha iniciado
+sesión.
+También proporciona la funcionalidad "recordarme" que permite a los usuarios
+permanecer contectados incluso después de cerrar la ventana del navegador.
+Instalar `flask-login`:
+
+    pip install flask-login
+
+Al igual que con otras extensiones, Flask-Login debe crearse e inicializarse
+justo después de la instancia de la aplicación en -> `app/__init__.py`.
+
+#### Preparación del modelo de usuario para Flask-Login
+La extensión Flask-Login funciona con el modelo de usuario de la aplicación y
+espera que se implementen ciertas propiedades y métodos en ella. Este enfoque
+es bueno, porque siempre que estos elementos requeridos se agreguen al modelo,
+Flask-Login no tiene ningún otro requisito, por lo que, por ejemplo, puede
+funcionar con modelos de usuario que se basan en cualquier sistema de base de datos.
+
+Los cuatro elementos necesarios se enumeran a continuación:
+- `is_authenticated`: una propiedad que es `True` si el usuario tiene credenciales válidas o de lo contrario `False`.
+- `is_active`: una propiedad que es `True` si la cuenta de usuario está activa o de lo contrario `False`.
+- `is_anonymous`: una propiedad que es `False` para usuarios regulaes y `True` para un usuario especial y anónimo.
+- `get_id()`: un método que devuelve un identificador único para el usuario como una cadena.
+
+Puedo implementar estos cuatro fácilmente, pero dado que las implementaciones son
+bastante genéricas, Flask-login proporciona una clase mixta llamada `UserMixin`
+que incluye implementaciones genéricas que son apropiadas para la mayoría de las
+clases de modelos de usuario. Agregar la clase mixin al modelo -> `app/models.py`.
+
+#### Función de cargador de usuario
+Flask-Login realiza un seguimiento del usuario conectado al almacenar su
+identificador único en la sesión del usuario de Flask, un espacio de almacenamiento
+asignado a cada usuario que se conecte a la aplicación. Cada vez que el usuario
+que inicio sesión navega a una nueva página, Flask-Login recuperara el ID del
+usuario de la sesión y luego cargara ese usuario en memoria.
+
+Debido a que Flask-Login no sabe nasa sobre base de datos, necesita ayuda de la
+aplicación para cargar un usuario. Por esa razón, la extensión espera que la
+aplicación configure una función de cargador de usuarios, que se pueda llamar para
+cargar un usuario dada la ID. Esta función se puede agregar al módulo -> `app/models.py`.
+
+El cargador de usuario está registrado con Flask-Login con el decorador
+`@login.user_loader`.
+
+#### Inicio de sesión de usuarios
+Ahora que la aplicación tiene acceso a un base de datos de usuarios y sabe cómo
+generar y verificar hashes de contraseña, esta función de vista se puede completa
+-> `app/routes.py`.
+
+Las dos líneas superiores en el `login()` hacen fretnte a una situación externa.
+Imagine que tiene un usuario que ha iniciado sesión y el usuario navega a la URL
+de inicio de sesión de su aplicación. Claramente eso es un error. La variable
+`current_user` proviene de Flask-Login y se puede utilizar en cualquier momento
+durante el manejor para obtener el objeto del usuario que representa al cliente
+de la solicitud. El valor de esta variable puede ser un objeto de usuario de la
+base de datos (que Flask-Login lee a través de la devolución de llamada del cargador
+de usuario), o un objeto de usuario anónimo especial que si el usuario aún no
+inicio sesión. `is_authenticated` comprueba si el usuario está logueado o no.
+Cuando el usuario ya ha iniciado sesión, lo redirige a la página de índice.
+
+En lugar de la llamada a `flash()`, ahora puedo registrar al usuario del verdad. El
+primer paso es cargar el usuario desde la base de datos. El nombre de usuairo vino
+con el envío del formulario, por lo que puedo consultar la base de datos para
+econtrar al usuario. Para este propósito estoy usando el método `filter_by()` del
+objeto de consulta SQLAlchemy. El resultado de `filter_by()` es una consulta que
+solo incluye los objetos que tienen un nombre de usuario coincidente. Como sé
+que solo va a haber uno o cero resultado, completo la consulta con `first()`, que
+devolverá el objeto del usuario si existe, o `None` si no es así. El método `first()`
+es otra forma comúnmente utilizada para ejecutar una consulta, cuando solo
+necesita tener un resultado.
+
+Si obtuve una coincidencia para el nombre de usuario que proporcionó, puedo verifica
+si la contraseña que también vino con el formulario es válida. Esto se hace
+invocando el método `check_password`. Esto tomarpa el hash de contraseña
+almacenado con el usuario y determinará si la contraseña ingresada en el
+formulario coinciden con el hash o no. Así que ahora tengo dos posibles
+condiciones de error: el nombre del usuario puede no ser válido o la contraseña
+puede ser incorrecta para el usuario. El cualquier caso, muestro un mensaje y
+redirijo de nuevo al indicador de inicio de sesión.
+
+Si el nombre de usuario y la contraseña son correctos, llamo a la función
+`login_user()`, que proviene de Flask-Login. Esta función registrará al usuario
+como conectado, lo que significa que cualquier página futura a la que navegue
+el usuario tendrá la variable `current_user` establecida para ese usuario.
+
+Para completa el proceso de inicio de sesión. simplemente redirijo al usuario
+que acaba de iniciar sesión a la página de índice.
+
+#### Cerrar sesión de usuarios
+Esto se puede hacer con la función `logout_user()` de Flask-Login -> `app/routes.py`.
+
+Para exponer este enlace a los usuarios, puedo hacer que el enlace iniciar
+sesión en la barra de navegación cambie automáticamente a un enlace cerrar
+sesión después de que el usuario inicie sesión en -> `app/templates/base.html`.
+
+La propiedad `is_anonymous` es uno de los atributos que Flask-Login agrega a los
+objetos de usuario a través de la clase `UserMixin`. La expresión
+`current_user.is_anonymous` va a ser `True` solo cuando el usuario no ha iniciado
+sesión.
+
+#### Requerir que los usuarios inicien sesión
+Flask-Lgin proporciona una función muy úitl que obliga a los usuarios a iniciar
+sesión antes de poder ver ciertas páginas de la aplicación. Si un usuario que
+no ha iniciado sesión intenta ver una página protegida, Flask-Login redirigirá
+automáticamente al usuario al formulario de inicio de sesión y solo lo
+redirigirá de vuelta a la página que el usuario quería ver después de que
+se complete el proceso de inicio de sesión.
+
+Para implementar esta característica, Flask-Login necesita saber cuál es la
+función de vista que maneja los inicios de sesión. Esto se puede agregar
+a -> `app/__init__.py`.
+
+El valor `'login'` anterior es el nombre de la función (end point) para la vista
+de inicio de sesión. En otras palabras, el nombre que usaría en `url_for()`
+para obtener la URL.
+
+La forma en que Flask-Login protege una función de vista contra usuarios
+anónimos es con un decorador llamado `@login_required`. Cuando agrega este
+decorador a una función de vista debajo del decorador `@app.route` de Flask, la
+función se protege y no permitirá el acceso a usuarios que no estén autenticados.
+Así es como se puede aplicar el decorador a la función de vista de índice de la
+aplicacion en -> `app/routes.py`.
+
+Lo que queda es implementar la redirección desde el inicio de sesión exitoso a la
+página a la que el usuario quería acceder. Cuando un usuario que no ha iniciado
+sesión accede a una función de vista protegida con el decorador `@login_required`,
+el decorador va a redirigir a la página de inicio de sesión, pero va a
+incluir información adicional en esta redirección para que la aplicación pueda
+volver a la primera página. Si el usuario navega a `/index`, por ejemplo, el
+decorador `@login_required` interpectará la solicitud y respondera con una
+redirección a `/login`, pero agregará un argumento de cadena de consulta a esta
+URL, haciendo que la URL de redirección completa sea `/login?next=/index`. El
+argumento `next` de la cadena de consuta se establece en la URL original, por lo
+que la aplicación puede usar para redirigir despues de iniciar sesión.
+
+Leer y procesar el argumento `next` de la cadena de consulta -> `app/routes.py`.
+
+Inmediatamente después de que el usuario inicie sesión a Flask_login a la
+función `login_user()` el valor de `next` obtiene el argumento de la consulta.
+Flask proporciona una variable `request` que contiene toda la información que
+el cliente envió con la solicitud. En particular, el atributo `request.args`
+expone el contenido de la cadena de consulta en un formato de diccionario
+amigable. En realidad, hay tres casos posibles que deben considerarse para
+determianar a dónde redirigir después de un inicio de sesión exitoso:
+- Si la URL de inicio de sesión no tiene un argumento `next`, entonces el usuario es redirigido a la página de índice.
+- Si la URL de inicio de sesión incluye un argumento `next` que se establece en una ruta relativa (una URL sin la parte del dominio), el usuario es redirigido a esa URL.
+- Si la URL de inicio de sesión incluye un argumento `next` que se establece en una URL completa que incluye un nombre de diminio, luego se redirige al usuario a la página de índice.
+
+El primer y segundo caso se explican por sí mismo. El tercer caso está en su lugar
+hacer que la aplicación sea más segura. Un atacante podría una URL a un sitio
+malicioso en el argumento `next`, por lo que la aplicación solo redirige cuando la
+URL es relativa, lo que garantiza que la redirección permanezca dentro del mismo
+sitio que la aplicación. Para determinar si la URL es relativa o absoluta, se
+analiza con Werkzeug `url_for()` y luego verifica si el componente `netloc` está
+condifurado o no.
+
+#### Mostrar el usuario contectado en plantillas
+La aplicación ahora tiene usuarios reales, así que ahora puedo eliminar el
+usuario falso y comenzar a trabajar con usuarios reales. En lugar del usuario
+falso, puedo usar Flask-Login `current_user` en la plantilla `app/templates/index.html`.
+
+Y puedo quitar el argumento `user` de la plantilla en la función de vista
+-> `app/routes.py`.
+
+Dado que todavía no hay un registro de usuario, la única forma de agregar un
+usuario a la base de datos es hacerlo a través del shell de Python:
+```py
+u = User(username='bender', email='bender@example.com')
+u.set_password('doblador')
+db.session.add(u)
+db.session.commit()
+```
+
+#### Registro de usuario
+Crear la clase de formulario web en -> `app/forms.py`.
+
+Hay un par de cosas interesantes en ese nuevo formulario relacionadas con la
+validación. Primero, para el campo `email` he agregado un segundo validador después
+de `DataRequired` llamado `Email`. Este es otro validador de acciones que viene con
+WTForms que garantizará que lo que el usuario escriba en ese campo coincida con la
+estructura de una dirección de correo electrónico.
+
+El validador `Email()` de WTForms requiere que instale una dependencia externa:
+
+    pip install email-validator
+
+Dado que se trata de un formulario de registro, se acostumbra pedir al usuario que
+escriba la contraseña dos veces para reducir el riesgo de error ripográfico. Po
+eso tengo los campos `password` y `password2`. El segundo campo de contraseña utiliza
+otro validador de acciones llamado `EqualTo`, que se asegurará de que su valor sea
+idéntico al del primer campo de contraseña.
+
+Cuando agrega cualquier método que coincida con el pátron `validate_<field_name>`,
+WTForms los toma como validadores personalizados y los invoca además de los
+validadores de acciones. He agregado dos de esos métodos a esta clase para los
+campos `username` y `email`. En este caso, quiero asegurarme de que el nombre de
+usuario y la dirección de correo electrónico ingresados por el usuario no estén
+ya en la base de datos, por lo que estos dos métodos emiten consultas a la base
+de datos esperando que no haya resultados. En caso de que exista un resultado, se
+descencadena un error de validación al generar una excepción de tipo
+`ValidationError`. El mensaje incluido como argumento de la excepción será el
+mensake que se monstrará junto al campo para que lo vea el usuario.
+
+Para mostrar este formulario en una página web, necesito tener una plantilla HTML,
+que se almacenará en el archivo -> `app/templates/register.html`. Esta plantilla
+está construida de manera similar a la del formulario de inicio de sesión.
+
+La plantilla del formulario de inicio de sesión necesita un enlace que envíe a
+los nuevos usuarios al formulario de registro, justo debajo del formulario
+en -> `app/templates/login.html`.
+
+Y finalmente, necesito escribir la función de vista que manejará los registros
+de usuarios -> `app/router.py`.
+
+Primero me aseguro de que el usuario que invoca esta ruta no haya iniciado sesión.
+El formulario se maneja de la misma manera que el de inicio de sesión. La lógica
+que se reliza dentro de la condición `if validate_on_submit()` crear un nuevo
+usuario con el nombre de usuario, el correo, y la contraseña proporcionada, lo
+escribe en la base de datos y luego redirige a la solicitud de incio de sesión
+para que el usuario puede iniciar sesión.
