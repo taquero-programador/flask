@@ -990,7 +990,7 @@ asignado a cada usuario que se conecte a la aplicación. Cada vez que el usuario
 que inicio sesión navega a una nueva página, Flask-Login recuperara el ID del
 usuario de la sesión y luego cargara ese usuario en memoria.
 
-Debido a que Flask-Login no sabe nasa sobre base de datos, necesita ayuda de la
+Debido a que Flask-Login no sabe nada sobre base de datos, necesita ayuda de la
 aplicación para cargar un usuario. Por esa razón, la extensión espera que la
 aplicación configure una función de cargador de usuarios, que se pueda llamar para
 cargar un usuario dada la ID. Esta función se puede agregar al módulo -> `app/models.py`.
@@ -1174,3 +1174,220 @@ que se reliza dentro de la condición `if validate_on_submit()` crear un nuevo
 usuario con el nombre de usuario, el correo, y la contraseña proporcionada, lo
 escribe en la base de datos y luego redirige a la solicitud de incio de sesión
 para que el usuario puede iniciar sesión.
+
+## Profile page and avatars
+#### Página de perfil de usuario
+Para crear una pǵina de perfil del usuario, agregamos una ruta `/user/<username>` a
+-> `app/routes.py`.
+
+El decorador `@app.route` que usé para declarar esta función de vista se ve un poco
+diferente a la anterior. En este caso, tengo un componente dinámico en él,
+que se indica como el componente `<username>` de URL que está rodeado por `<>`.
+Cuando una ruta tiene un componente dinámico, Flask aceptará cualquier texto en
+esta parte de la URL e invocará la función de visualización con el texto real
+como argumento. Por ejemplo, si el navegador del cliente solicita la URL
+`/user/susan`, la función de vista se va a llamar con el argumento `username`
+ajustado a `'susan'`. Esta función de vista solo será accesible para los usuarios
+registrados, por lo que he agregado el decorador `@login_required` de Flask-Login.
+
+La implementación de esta función de vista es bastante simple. Primero trato de
+cargar al usuario desde la base de datos usando una consulta por el nombre de
+usuario. En esta función de vista, estoy usando la variante de `first()` llamado
+`first_or_404()`, que funciona exactamente como `first()` cuando hay resultados, pero
+en el caso de que no haya resultados, envía automáticamente un error 404 al cliente.
+Ejecutando la consulta de esta manera me ahorro comprobar si la consulta devolvió
+un usuario, ya que cuando el usuario no existe en la base de datos la función no
+regresara y en su lugar se lanzará una excepción 404.
+
+Si la consulta de la base de datos no genera un error 404, eso significa que se
+encontró un usuario con el nombre de usuario dado. A continuación, inicializo
+una lista falsa de publicaciones para este usuario, finalmente renderizo una nueva
+plantilla `user.html` a la que paso el objeto de usuario y la lista de publicaciones
+-> `app/templates/user.html`.
+
+La página de perfile ahora está completa, pero no existe un enlace a ella en
+ninguna parte del sitio web. Para que sea un poco más fácil para los usuarios
+verificar su propio perfil, agregaré un enñace en la barra de navegación en la
+parte superior -> `app/templates/base.html`.
+
+El único cambio interesante aquí es la llamada `url_for()` que se utiliza para
+generar el enlace a la página de perfil. Dado que la función de vista de perfil
+de usuario toma un argumento dinámico, la función `url_for()` recibe un valor como
+argumento de palabra clave. Dado que este es un enlace que apunta al perfile de
+usuario que inicio sesión, puedo usar Flask-Login `current_user` para generar la
+URL correcta.
+
+Al hacer clic en el enlace `Profile` en la parte superior debería llevarlo a su
+propia página del usuario. En este momento no hay enlaces que lleven a la
+página de pergile de otros usuarios, pero si desea acceder a esas páginas,
+escribir la URL a mano en la barra de direcciones.
+
+#### Avatares
+Para hacerlo un poco más interesante, agregaré avatares de usuarios, pero en
+lugar de tener que lidiar con una colección posiblemente grande de imágenes
+cargadas en el servidor, usaré el servicio Gravatar para proporcionar
+imágenes para todos los usuarios.
+
+El servicio Gravatar es muy simple de usar. Para solicitar una imagen de usuario
+determinado, una URL con el formato `https://www.gravatar.com/avatar/<hash>`,
+donde `<hash>` es el hash MD5 de la dirección de correo del usuario. Cómo obtener
+la URL de Gravatar para un usuario con el correo `bender@example.com`:
+```py
+from hashlib import md5
+'https://www.gravatar.com/avatar' + md5(b'bender@example.com').hexdigest()
+```
+De forma predeterminada, el tamaño de imagen devuelto es de 80x80 píxeles, pero
+se puede solicitar un tamaño diferente agregando un argumento `s` a la cadena de
+consulta de la URL. Por ejemplo, para obtener una imagen de avatar de 128x128
+píxeles, la URL es `https://www.gravatar.com/avatar/729e26a2a2c7ff24a71958d4aa4e5f35?s=128`.
+
+Otro argumento interesante que se puede usar pasar a Gravatar como un argumento de
+cadena de consulta es `d`, que determina qué imagen proporciona Gravatar a los
+usuarios que no tienen un avatar registrado en el servicio. "identicon", que
+devuelve un bonito diseño geométrico que es diferente para cada correo.
+
+Tenga en cuenta que algunas extensiones de navegador como Ghostery bloquean
+las imágenes de Gravatar. Si no ve avatares en su navegador, considere que el
+problema puede deberse a una extensión que tenga en su navegador.
+
+Debido a que los avatares están asociados con los usuarios, tiene sentido agregar
+la lógica que genera las URL de los avatares al modelo de usuario -> `app/models.py`.
+
+El nuevo método `avatar()` de la clase `User` devuelve la URL de la imagen del avatar
+del usuarios, escalada al tamaño solicitado en píxeles. Para los usuarios que no
+tengan un avatar registrado, se generará una imagen de "identicon". Para
+generar el hash MD5 primero convierto el correo a minúsculas, ya que el servicio
+Gravatar lo requierse así. Luego, debido a que la compatibilidad con MD5 en
+Python funciona con bytes y no con cadenas, codifigo la cadena como bytes antes
+de pasarla a la función de hash.
+
+El siguiente paso es insertar las imágenes de avatar en la plantilla de perfil
+de usuario -> `app/templates/user.html`.
+
+Lo bueno de hacer la clase `User` responsable de devolver las URL de avatar es que
+si algún diá decido que los avatates de Gravatar no son los que quiero, puedo
+simplemente reescribir el método `avatar()` para devolver diferentes URL. y todas
+las plantillas comenzarán a monstrar los nuevos avatares automáticamente.
+
+Teng algunas publicaciones del usuario en la parte inferior que también podría
+tener un pequeño avatar. Para la página de perfil de usuario, por supuesto, todas
+las publicaciones tendrán el mismo avatar, pero luego puedo implementar la misma
+funcionalidad en la página principal, y luego cada publicación estatá decorada
+con el avatar del autor.
+
+Para monstrar avatares para todas las publicaciones individuales, se requiere
+hacer un pequeño cambio en la plantilla -> `app/templates/user.html`.
+
+#### Uso de plantillas Jinga2
+Diseñé la página de perfil de usuario para que muestre las publicaciones escritas
+por el usuario, junto con sus avatares. Ahora quiero que la página de índice
+también muestra las publicaciones con un diseño similar. Podría simplemente
+copiar/pegar las parte de la plantilla que se ocupa de la represetación de una
+publicación, pero eso no es ideal porque más adelante, si decido realizar cambios
+en este diseño, tendré que recordar actualizar ambas plantillas.
+
+En su lugar, voy a crear una subplantilla que solo represente una publicación,
+y luego voy a hacer referencia a ella desde las plantillas `user.html` e `index.html`.
+Para comenzar, puedo crear subplantillas, con solo el marco HTML para una sola
+publicación. Esta plantilla se llamará `app/templates/_post.html`. El prefijo
+`_` es solo una convención de nomeclatura para ayudar a reconocer qué archivo de
+plantilla son subplantillas -> `app/templates/_post.html`.
+
+Para invocar esta subplantilla desde la plantilla `user.html`, uso la declaración
+Jinga2 `include` -> `app/templates/user.html`.
+
+#### Más perfiles interesantes
+Un problema que tienen las nuevas páginas de perfil de usuario es que realmente
+no muestran mucho de ella. A los usuarios les gusta contar un poco sobre ellos
+en estas páginas, así que voy a dejar que escriban algo sobre ellos para
+mostrar aquí. También llevaré registro de cuál fue la última vez que cada
+usuario accedió al sitio y también lo mostraré en su página de perfil.
+
+Lo primero que debo hacer para admitir toda esta información adicional es
+ampliar la tabla de usuarios en la base de datos con dos nuevos campos
+-> `app/models.py`.
+
+Cada vez que se modifica la base de datos es necesario generar una migración. Ahora
+tengo dos campos nuevos que querio agregar a la base de datos, así que el primer
+paso es generar el script de migración:
+
+    flask db migrate -m "new fields in user model"
+    flask db upgrade
+
+Agragar dos nuevos campos a la plantilla de perfil de usuario -> `app/templates/user.html`.
+
+Tenga en cuenta que estoy envolviendo estos dos campos en los condicionales
+de Jinga2, porque solo quiero que sean visibles si están configurados. En este
+punto, estos dos nuevos campos están vacíos para todos los usuarios, por lo
+que no vera estos campos si ejecuta la aplicación.
+
+#### Registro de la hora de la última visita de un usuario
+El campo `last_seen`. Lo que quiero hacer es escribir la hora actual en este campo
+para un usuario determinado cada vez que ese usuario envíe una solicitud al
+servidor.
+
+Agregar el inicio de sesión para establecer este campo en cada función de vista
+posible que se pueda solicitar desde el navegador obviamente no es práctico,
+pero ejecutar un poco de lógica genérica antes de enviar una solicitud a una
+función de vista es una tarea tan común en las aplicaciones web que Flask lo
+ofrece como una característica nativa -> `app/routes.py`.
+
+El decorador `@before_request` de Flask resgitra la función decoradora que se
+ejecutará justo antes de la función de visualización. Esto es extremadamente
+útil porque ahora puedo insertar el código que quiero ejecutar antes de
+cualquier función de vista en la aplicación, y puedo tenerlo en un solo lugar.
+La implementación simplemente verifica si el `current_user` ha iniciado sesión,
+y en ese caso establece el campo `last_seen` a la hora actual. Usar la hora
+local del sistema no es una buena idea, porque entonces lo que pasa en la
+base de datos depede de la ubicación. El último paso es confirmar la sesión de
+la base de datos, de modo que el cambio realizado anteriormente se escriba en
+la base de datos. Si te preguntas por qué no hay `db.session_add()` antes de la
+confirmación, tenga en cuenta que cuando hace referencia a `current_user`, Flask-Login
+invocará la función de devolución de llamada del cargador de usuario, que
+ejecutará una consulta a la base de datos que pondrá el usuario de destino en
+la sesión de la base de datos. Entonces puede agragar el usuario nuevamente
+en esta función, pero no es necesario porque ya está allí.
+
+El contenido de la hora se actualiza de manera constante.
+
+El hecho de que esté almacenando estas marcas de tiempo en la zona horaria UTC
+hacen que la hora que se muestr en la página de perfile también este en UTC.
+Además de eso, el formato de la hora no es el esperado, ya que en realidad es la
+representación interna del objeto de fecha y hora de Python (más adelante).
+
+#### Editor de perfiles
+También necesito dar a los usuarios un formulario en el que puedan ingresas
+información sobre ellos mismo. El formulario permitirá a los usuarios cambiar
+su nombre de usuario y también escribir algo sobre sí mismos, que se
+almancenará en el nuevo campo `about_me` -> `app/forms.py`.
+
+Estoy usando un nuevo tipo de campo y un nuevo validador en este formulario. Para
+el campo "Aboute me" estoy usando un `TextAreaField`, que es un cuadro de varias
+líneas en el que el usuario puede introducir texto. Para validar este campo
+usando `Length`, que se asegurá de que el texto ingresado tenga entre 0 y 140
+caracteres, que es el espacio que he asignado para el campo correspondiente en
+la base de datos. La plantilla que representa este formulario es -> 
+`app/tempplates/edit_profile.html`.
+
+La función de vista eu une todo -> `app/routes.py`.
+
+Esta función de vista procesa el formulario de una manera ligeramente diferente.
+Si `validate_on_submit()` devuelve `True` copia los datos del formulario en el objeto
+de usuario y luego escribe el objeto en la base de datos. Pero cuando
+`validate_on_submit()` devuelve `False` puede deberse a dos motivos diferentes. En
+primer lugar, puede deberse a que el navegador acaba de enviar una solicitud
+`GET`, que debo responder proporcionando una versión inicial de la plantilla de
+formulario. También puede ser cuando el navegador envía una solicitud `POST` con datos
+de formulario, pero algo en esos datos no es válido. Para este formulario, necesito
+tratar estos dos casos por separado. Cuando el formulario se solicita por primera
+vez con una solicitud `GET`, quiero completar previamente los campos con los datos
+almacenados de la base de datos, por lo que debo hacer lo contrario de lo que hice
+en el caso de envío y mover los datos almacenados en los campos de usuario al
+formulario, porque WTForms ya los completó. Para distinguir entre dos casos,
+compruebo `request.method`, cuál podría ser la solicitud `GET` inicial, y `POST` para un
+envío que falló la validación.
+
+Para facilitar a los usuarios el acceso a la página del editor de perfil, agregarlo
+a la plantilla de -> `app/templates/user.html`. Estoy usando una condicional para
+asegurarme de que el enlace "Editar" aparezca cuando esté vienso su propio
+perfil, pero no cuando esté viendo el perfil de otra persona.
