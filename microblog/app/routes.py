@@ -12,6 +12,7 @@ from app.models import User
 @app.before_request
 def before_request():
     if current_user.is_authenticated:
+        print(f'current user: {current_user}')
         current_user.last_seen = datetime.utcnow()
         db.session.commit()
 
@@ -36,12 +37,12 @@ def index():
 @app.route('/login', methods=['GET', 'POST'])
 def login():
     if current_user.is_authenticated:
-        return redirecto(url_for('index'))
+        return redirect(url_for('index'))
     form = LoginForm()
     if form.validate_on_submit():
         user = User.query.filter_by(username=form.username.data).first()
         if user is None or not user.check_password(form.password.data):
-            flash('Invalir username or password')
+            flash('Invalid username or password')
             return redirect(url_for('login'))
         login_user(user, remember=form.remember_me.data)
         next_page = request.args.get('next')
@@ -54,6 +55,7 @@ def login():
 @app.route('/logout')
 def logout():
     logout_user()
+    print('cerrar sesión')
     return redirect(url_for('index'))
 
 
@@ -69,24 +71,25 @@ def register():
         db.session.commit()
         flash('Congrats, you are now a registered user!')
         return redirect(url_for('login'))
-    return render_template('register.html', title="Register", form=form)
+    return render_template('register.html', title='Register', form=form)
 
 
 @app.route('/user/<username>')
 @login_required
 def user(username):
     user = User.query.filter_by(username=username).first_or_404()
+    print(f'{user}, {current_user}, {user.username}')
     posts = [
         {'author': user, 'body': 'Test post #1'},
         {'author': user, 'body': 'Test post #2'}
     ]
-    return render_template('user.html', user=user, posts=posts)
+    return render_template('user.html', title='Profile', user=user, posts=posts)
 
 
 @app.route('/edit_profile', methods=['GET', 'POST'])
 @login_required
 def edit_profile():
-    form = EditProfileForm()
+    form = EditProfileForm(current_user.username)
     if form.validate_on_submit():
         current_user.username = form.username.data
         current_user.about_me = form.about_me.data

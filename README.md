@@ -676,7 +676,7 @@ que se crearon después de la versión anterior.
 
 También tiene un comando `flask db downgrade`, que deshace la última migración. Si
 bien es poco probable que necesite esta opción en su sistema de producción, puede
-resultare muy úitl durante el desarrollo. Es posible que haya generado un script
+resultare muy útil durante el desarrollo. Es posible que haya generado un script
 de migración y lo haya aplicado, solo para descubrir que los cambios que
 realizó no son exactamente lo que necesita. En este caso, puede degradar la base
 de datos, eliminar el script de migración y luego generar uno nuevo para
@@ -712,7 +712,7 @@ tabla que se refiere. Este tipo de ralación se llama uno a muchos, porque "un"
 usuario escribe muchas "publicaciones". Modificar -> `app/models.py`.
 
 La nueva clase `Post` representará publicaciones de blog escritas por usuarios. El
-campo `timestamp` se indexará, lo cual es útl si desea recuperar publicaciones en
+campo `timestamp` se indexará, lo cual es útil si desea recuperar publicaciones en
 order cronológico. También he añadido un argumento `default`, y pasó la función
 `datetime.utcnow`. Cuando pasa una función como predeterminada, SQLAlchemy
 establecerá el campo en el valor al llamar a esa función. En general querrá
@@ -1391,3 +1391,221 @@ Para facilitar a los usuarios el acceso a la página del editor de perfil, agreg
 a la plantilla de -> `app/templates/user.html`. Estoy usando una condicional para
 asegurarme de que el enlace "Editar" aparezca cuando esté vienso su propio
 perfil, pero no cuando esté viendo el perfil de otra persona.
+
+## Error Handling
+#### Manejor de errores en Flask
+¿Qué sucede cuando se produce un error en una aplicación de Flask? Inicie sesión
+como uno de los usuarios, abra la página de perfile y haga clic en "Editar". En
+el editor de perfiles, pruebe a cambiar el nombre de usuario por el de otro
+usuario que ya esté resistrado. Esto traerá una página de "Error interno del servidor".
+
+![error-500](pics/500-error.png)
+
+Si mira en la sesión de terminal donde se ejecuta la aplicación, verá un
+seguimiento de pila del error. Los seguimientos de pila son extremadamente útiles
+para deuprar errores, porque muestra la secuencia de llamadas de esa pila.
+
+El seguimiento de la pila indica cuál es el error. La aplicación permite que un
+usuario cambie el nombre de usuario, y no valida que el nuevo nombre de usuario
+elegido no colisione con otro usuario que ya está en el sistema. El error proviene de
+SQLAlchemy, que intenta escribir el nuevo nombre de usuario en la base de datos,
+pero la base de datos rechaza porque la columna `username` se define como
+`unique=True`.
+
+Es importante tener en cuenta que la página de error que se presenta al usuario no
+brinda mucha información sobre el error, y eso es bueno. Definitivamente no quiero
+que los usuarios sepan que el bloqueo fue causado por un error en la base de datos,
+o qué base de datos estoy usando, o cuáles son algunos de los nombres de tablas
+y campos en la base de datos. Toda esa información debe mantenerse interna.
+
+Hay algunas cosas que están lejos de ser ideales. Tengo una página de error que es
+muy fea y no coincide con el diseño de la aplicación. También tengo rastros
+importantes de la pila de aplicaciones que se descarga en una terminal que
+necesito vigilar constantemente para asegurarme de no perder ningún error.
+
+#### Modo de depuración
+La forma en la que vio que los errores se manejan arriba es excelente para un
+sistema que se ejecuta en un servidor de producción. Si hay un error, el usuario
+obtiene una página de error vaga y los detalles importantes del error están en la
+salida del proceso del servidor o en un archivo de registro.
+
+Pero cuadno está desarrollando su aplicación, puede habilitar el modo de depuración,
+un modo en el que Flask genera un depurador realmente agradable directamente en su
+navegador. Crear una variable de entorno:
+
+    export FLASK_DEBUG=True
+
+Ahora haga que la aplicación se bloquee una vez más para ver el depurador
+interactivo en el navegador:
+
+![debug](pics/debugger.png)
+
+El depurador le permite expandir cada marco de pila y ver el código fuente
+correspondiente. También puede abrir un indicador Python en cualquiera de los marcos
+y ejecutar cualquier expresión de Python válida, por ejemplo, para verificar los
+valores de las variables.
+
+Es extremadamente importante que nunca ejecute una aplicación Flask en modo de
+depuración en un servidor de producción. El depurador permite al usuario ejecutar
+código de forma remota en el servidor, por lo que puede ser un regalo inesperado
+para un usuario malicioso que quiera infiltrarse en su aplicación o servidor.
+Como medida de seguridad adicional, el depurador que se ejecuta en el navegador
+comienza bloqueado y, al usarlo por primera vez, le pedriá un número PIN, que
+puede ver en la salida de dominio `flask run`.
+
+#### Páginas de error personalizadas
+Flask proporciona un mecanismo para que una aplicación instale sus propias páginas
+de error, de modo que sus usuarios no tengan ver las sencillas y aburridas páginas
+predeterminadas. Como ejemplo, definamos páginas de error personalizadas para los
+errores HTTP `404` y `500`, los más comunes. La definición de páginas para otros
+errores funciona de la misma manera.
+
+Para declarar un controlador de erroes personalizado, se utiliza el decorador
+`@errorhandler` en -> `app/errors.py`.
+
+Las funciones de error funcionan de manera muy similar a las funciones de
+visualización. Por estos dos errores, estoyy devolviendo el contenido de sus
+respectivas plantillas. Tenga en cuenta que ambas funciones devuelven un segundo
+valor después de la plantilla, que es el número de código de error. Para todas las
+funciones de vista hasta ahora, no necesitaba un segundo valor de retorno porque
+el valor predeterminado de `200` (el código de estado para una respuesta existosa)
+es lo que quería. En este caso, estas son páginas de error, por lo que quiero que
+el código de estado de la respuesta lo refleje.
+
+El controlador de errores para los errores `500` podría invocarse después de un
+error de la base de datos, que en realidad fue el caso con el nombre de usuario
+duplicado. Para asegurarme de que las sesiones fallidas de la base de datos no
+interfiere con ningún acceso a la base de datos activado por la plantilla, emito
+una reversion de sesión. Esto restablece la sesión a un estado limpio.
+
+Crear plantilla para el error `404` -> `app/tempaltes/404.html`.
+
+Crear plantilla para el error `500` -> `app/templates/500.html`.
+
+Ambas plantillas heredan la plantilla `base.html`, para que la página de error tenga
+el mismo aspecto que las páginas normales de la aplicación.
+
+Para registrar estos controladores de errores con Flask, hay que importar el nuevo
+módulo `app/errors.py` en -> `app/__init__.py`.
+
+#### Envío de errores por correo electrónico
+El problema con el manejo errores predeterminado proporiconado por Flask es que
+no hay notificaciones, el seguimiento de la pila de errores imprime en la terminal,
+lo que significa que la salida del proceso del servidor debe monitorearse para
+descubrir errores. Cuando está ejecutando la aplicación durante el desarrollo, esto
+está bien, per una vez que la aplicación se implementa en un servidor de producción,
+nadie mirara los resultados, por lo que debe implementar una solución.
+
+Si ocurre un error en la versión de producción de la aplicación, quiero saberlo de
+inmediato. Entonces, mi primera solución será configurar Flask para que se envíe
+un correo inmediatamente después de un error, con el seguimiento de la pila del
+error en el cuerpo del correo.
+
+El primer paso es agregar los detallles del servidor de correo electrónico al archivo
+de configuración -> `config.py`.
+
+Las variables de configuración para el correo incluyen el servidor y puerto, un indicador
+booleano para permitir conexiones cifradas, un nombre de usuario y una contraseña opcional.
+Las cinco variables de configuración se obtiene de sus equivalentes variables de entorno.
+Si el servidor de correos no está configurado en el entorno, lo usaré como una señal de que los
+correos deben desactivarse. El puerto del correo también se puede proporcionar en una variable
+de entorno, pero si se establece, se utiliz el puerto 25. Las credenciales del servidor de
+correo no se utilizan de forma predeterminada, pero se puede proporcionar si es necesario.
+La variable `ADMINS` de configuración es una lista de las direcciones de correo que recibirán
+informes de error, por lo que su propia dirección de correo debe estar en la lista.
+
+Flask usa el paquete Python `loggin` para escribir sus registros, y este paquete ya tiene la
+capacidad de enviar los registros por correo. Agregar una instancia `SMTPHandler` al objeto
+Flask logger, que es `app.logger` -> `app/__init__.py`.
+
+Como puede ver, solo habilitaré el registrador de correo cuando la aplicación se esté ejecutando
+sin el modo de depuración, lo cual se indica mediante `app.logger` `True`, y también cuando
+el servidor de correo exista en la configuración.
+
+Configurar el registro de correo es algo tedioso debido a que tiene que manejar opciones de
+seguridad opcionales que están presentes en muchos servidores de correo. Pero en esencia,
+el código anterior crea una instancia `SMTPHandler`, establece su nivel para que solo informe
+errores y no advertencias, mensajes informativos o de depuración, y finalmente lo adjunta a
+el objeto `app.logger` de Flask.
+
+Hay dos enfoques para probar esta función. La más fácil es usar el servidor de depuración
+SMTP de Python. Este es un servidor de correo falso que acepta correos, pero en lugar de
+enviarlos, los imprime en la consola. El comando es:
+
+    python -m smtpd -n -c DebbuginServer localhost:8025
+
+Deje el servidor SMTP de depuración ejecutándose y regrese a su terminal y configure
+`export MAIL_SERVER=localhost` y `MAIL_PORT=8025` para las variables de entorno. Asegúrese que
+la variable `FLASK_ENV` se establesca en `production` o no configurado en absoluto, ya que
+la aplicación no enviará correos en modo de depuración. Ejecute la aplicación y active
+el errir de SQLAlchemy una vez más para ver cómo la sesión de terminal que ejecuta el
+servidor de correo falso muestra un correo con el siguimiento completo del error.
+
+Un segundo enfoque de prueba para esta función es configurar un servidor de correo real.
+Configuración para usar el servidor de correo de Gmail:
+```sh
+export MAIL_SERVER=smpt.googlemail.com
+export MAIL_PORT=587
+export MAIL_USER_TLS=1
+export MAIL_USERNAME=example@gmail.com
+export MAIL_PASSWORD=password
+```
+
+#### Iniciar sesión en un archivo
+Recibir errores por correo es bueno, pero a veces no es suficiente. Hay algunas condiciones de
+falla que no terminan en una excepción de Python y no son un problema importante, pero
+aún pueden ser lo suficientemente interesante como para guardarlas con fines de depuración.
+Por esta razón, también mantendré un archivo de registro para la aplicación.
+
+Para habilitar un registro basado en archivos, otro controlador, esta vez de tipo
+RotatingFileHandler, debe adjuntarse al registro de la aplicación, de manera similar al
+controlador de correo en -> `app/__init__.py`.
+
+Estoy escribiendo el archivo de registro con el nombre de `microblog.log` en un directorio
+de registros, que se crea si aún no existe.
+
+La clase `RotatingFileHandler` es agradable porque gira los registros, lo que garantiza
+que los archivos de registro no crezcan demasiado cuando la aplicación se ejecuta durante
+mucho tiempo. En este casoi, limito el tamaño del archivo de registro a 10 KM y conservo
+los últimos diez archivos de registro como copia de seguridad.
+
+La clase `logging.Formatter` proporciona un formato perzonalizado para los mensajes de
+registro. DAdo que estos mensajes van a un archivo, querio que tenga la mayor cantidad
+de información posible. Así que estoy usando un formato que incluye la marca de tiempo,
+el nivel de registro, el mensaje, el archivo de origen y el número de línea desde donde
+se originó la entrada de registro.
+
+Para que el registro sea más útil, también estoy bajando el nivel de registro a la categoría
+`INFO`, tanto en el registro de la aplicación como en el controlador del registrador de
+archivos. En caso de que no esté familiarizado con las categorías de registro, son
+`DEBUG`, `INFO`, `WARNING`, `ERROR`, `CRITICAL` en orden creciente de severidad.
+
+Como primer uso interesante del archivo de registro, el servidor escribe una línea en los
+registro cada vez que se inicia. Cuando esta aplicación se ejecuta en un servidor de
+producción, estas entradas de registro le indicarán cuándo se reinició el servidor.
+
+#### Corrección del error de nombre de usuario duplicado
+`RegistrationForm` ya implementa la validación de nombres de usuario, pero los registros del
+formulario de edición son ligeramente diferentes. Durante el registros, debo asegurarme de
+que el nombre de usuario ingresado en el formulario no existe en la base de datos. En
+el formulario de edición de perfil tengo que hacer la misma comprobación, pero con una
+excepción. Si el formulario deja intacto el nombre de usuario original, entonces la
+validación debería permitirlo, ya que ese nombre de usuario ya está asignado a ese
+usuario. Implementación para la validación de nombre de usuario -> `app/forms.py`.
+
+La implementación está en un método de validación personalizado, pero hay un constructor
+sobrecargado que acepta el nombre de usuario original como argumento. Este nombre de usuario
+se guarda como una variable de instancia y se registra en el método `validate_username()`.
+Si el nombre de usuario ingresado en el formulario es el mismo que el nombre de usuario
+original, entonces no hay razón para buscar duplicados en la base de datos.
+
+Para usr este nuevo método de validación, necesito agregar el argumento de nombre de
+usuario original a la función de vista, donde se crea el objeto de formulario -> `app/routes.py`.
+
+Ahora el error está solucionado y se evitarán los duplicados en el formulario de edición
+de perfil en la mayoría de los casos. Esta no es una solución perfecta, porque es
+posible que no funcione cuando dos o más accedan a la base datos al mismo tiempo. En esa
+situación, una condición de carrera podría hacer que se pasara la validación, pero un
+momento después, cuando se intenta cambiar de nombre, otro proceso ya cambió la base de
+datos y no se puede cambiar el nombre de usuario. Esto es algo improbable excepto para
+aplicaciones mus ocupadas que tiene muchos procesos de servidor.
